@@ -10,5 +10,5 @@ alertButton.innerHTML = "Get Alerted!";
 app.append(alertButton);
 
 alertButton.addEventListener("click", () => {
-    alert("🚨 Button Pressed!! 🚨")
-})
+    alert("🚨 Button Pressed!! 🚨");
+});
