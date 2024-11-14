@@ -44,14 +44,17 @@ h1 {
 }
 
 #map {
-  width: 100%;
+  width: 50%;
   height: 80vh;
+  margin: 0 auto; /* Centers the map horizontally */
+  display: block; /* Ensures the map is a block element */
 }
 
 button {
   border-radius: 8px;
   border: 1px solid transparent;
   padding: 0.6em 1.2em;
+  margin: 0 auto; /* Centers the map horizontally */
   font-size: 1em;
   color: rgba(255, 255, 255, 0.87);
   font-weight: 500;
