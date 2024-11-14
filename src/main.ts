@@ -1,5 +1,5 @@
 // @deno-types="npm:@types/leaflet@^1.9.14"
-import leaflet, { latLng } from "leaflet";
+import leaflet from "leaflet";
 
 // Style sheets
 import "leaflet/dist/leaflet.css";
@@ -43,7 +43,7 @@ const player = leaflet.marker([36.98949379578401, -122.06277128548504]).addTo(
 );
 player.bindPopup("This is you!");
 player.openPopup();
-
+//player coin counter
 let player_coins = 0;
 
 // create a red polyline from an array of LatLng points
