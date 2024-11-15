@@ -26,7 +26,7 @@ const START_ZOOM = 16;
 const MAX_ZOOM = 19;
 const MIN_ZOOM = 16;
 const TILE_SIZE = 0.001;
-const NEIGHBORHOOD_SIZE = 8;
+const NEIGHBORHOOD_SIZE = 10;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
 interface cell {
