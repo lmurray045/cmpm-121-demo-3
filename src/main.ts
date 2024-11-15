@@ -21,13 +21,24 @@ const mainMap = document.createElement("div");
 mainMap.id = "map";
 app.append(mainMap);
 
-const OAKES_CLASSROOM = leaflet.latLng(36.98949379578401, -122.06277128548504);
+const OAKES_CLASSROOM = leaflet.latLng(36.9894, -122.0627);
 const START_ZOOM = 16;
 const MAX_ZOOM = 19;
-const MIN_ZOOM = 15;
+const MIN_ZOOM = 16;
 const TILE_SIZE = 0.001;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
+
+interface cell {
+  i: number;
+  j: number;
+}
+
+interface coin {
+  x: number;
+  y: number;
+  serial: number;
+}
 
 const map = leaflet.map("map").setView(OAKES_CLASSROOM, START_ZOOM);
 
@@ -38,44 +49,43 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
 
-const player = leaflet.marker([36.98949379578401, -122.06277128548504]).addTo(
+const player = leaflet.marker([36.9894, -122.0627]).addTo(
   map,
 );
 player.bindPopup("This is you!");
 player.openPopup();
 //player coin counter
-let player_coins = 0;
+const player_coins: coin[] = [];
 
-// create a red polyline from an array of LatLng points
-const number_of_squares = 1000;
 const centerOnSpawnOffset = 0.0005;
-const start_grid_lat = OAKES_CLASSROOM.lat -
-  (number_of_squares / 2) * TILE_SIZE + centerOnSpawnOffset;
-const end_grid_lat = OAKES_CLASSROOM.lat +
-  (number_of_squares / 2) * TILE_SIZE + centerOnSpawnOffset;
-const start_grid_long = OAKES_CLASSROOM.lng -
-  (number_of_squares / 2) * TILE_SIZE + centerOnSpawnOffset;
-const end_grid_long = OAKES_CLASSROOM.lng +
-  (number_of_squares / 2) * TILE_SIZE + centerOnSpawnOffset;
-const latlngs: leaflet.LatLng[][] = [];
-let neighborhood: leaflet.LatLng[] = [];
 
-for (let i = start_grid_lat; i < end_grid_lat; i += TILE_SIZE) {
-  latlngs.push([
-    leaflet.latLng(i, start_grid_long),
-    leaflet.latLng(i, end_grid_long),
-  ]);
+let neighborhood: cell[] = [];
+
+function displayCoinList(c: coin[]): string[] {
+  const displayList: string[] = [];
+  c.forEach((c) => {
+    displayList.push(`{${c.x.toFixed(4)}|${c.y.toFixed(4)}: ${c.serial}}`);
+  });
+  return displayList;
 }
 
-for (let j = start_grid_long; j < end_grid_long; j += TILE_SIZE) {
-  latlngs.push([
-    leaflet.latLng(start_grid_lat, j),
-    leaflet.latLng(end_grid_lat, j),
-  ]);
+function renderCell(square: cell): void {
+  const corners: leaflet.LatLng[] = [];
+  const topRight = leaflet.latLng(square.i, square.j);
+  const topLeft = leaflet.latLng(square.i, square.j - TILE_SIZE);
+  const bottomRight = leaflet.latLng(square.i - TILE_SIZE, square.j);
+  const bottomLeft = leaflet.latLng(
+    square.i - TILE_SIZE,
+    square.j - TILE_SIZE,
+  );
+  corners.push(topRight);
+  corners.push(topLeft);
+  corners.push(bottomLeft);
+  corners.push(bottomRight);
+  leaflet.polyline(corners, { color: "blue", weight: 1, opacity: 0.8 }).addTo(
+    map,
+  );
 }
-leaflet.polyline(latlngs, { color: "blue", weight: 1, opacity: 0.8 }).addTo(
-  map,
-);
 
 function moveDown() {
   const pos = player.getLatLng();
@@ -116,34 +126,61 @@ function createCache(obj: leaflet.CircleMarker) {
   //CITATION - much of this code is taken from the example file
   obj.bindPopup(() => {
     // Each cache has a random point value, mutable by the player
-    let pointValue = Math.floor(
-      luck([obj.getLatLng(), "initialValue"].toString()) * 100,
+    const coinList: coin[] = [];
+    const numCoins = Math.floor(
+      luck([obj.getLatLng(), "initialValue"].toString()) * 10,
     );
+    for (
+      let i = 0;
+      i < numCoins;
+      i++
+    ) {
+      const coords = obj.getLatLng();
+      const x = coords.lat;
+      const y = coords.lng;
+      const newCoin: coin = {
+        x: x,
+        y: y,
+        serial: i,
+      };
+      coinList.push(newCoin);
+    }
+
     // The popup offers a description and button
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-                <div>There is a cache here at "${obj.getLatLng().lat}, ${obj.getLatLng().lng}". It has value <span id="value">${pointValue}</span>.</div>
-                <button id="take">Take</button>
-                <button id="deposit">Deposit</button>`;
+      <div>There is a cache here at "${obj.getLatLng().lat.toFixed(4)}, ${
+      obj.getLatLng().lng.toFixed(4)
+    }". It has the following coins: <span id="value">${
+      displayCoinList(coinList)
+    }</span>.</div>
+        <button id="take">Take</button>
+        <button id="deposit">Deposit</button>`;
     // Clicking the button decrements the cache's value and increments the player's points
     popupDiv.querySelector<HTMLButtonElement>("#take")!
       .addEventListener("click", () => {
-        if (pointValue > 0) {
-          pointValue--;
-          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-            pointValue.toString();
-          player_coins += 1;
-          playerCoins.innerHTML = `Player Coins: ${player_coins}`;
+        if (coinList.length > 0) {
+          const newCoin = coinList.pop();
+          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = `${
+            displayCoinList(coinList)
+          }`;
+          player_coins.push(newCoin as coin);
+          playerCoins.innerHTML = `Player Coins: ${
+            displayCoinList(player_coins)
+          }`;
         }
       });
     popupDiv.querySelector<HTMLButtonElement>("#deposit")!
       .addEventListener("click", () => {
-        if (player_coins > 0) {
-          pointValue++;
-          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML =
-            pointValue.toString();
-          player_coins -= 1;
-          playerCoins.innerHTML = `Player Coins: ${player_coins}`;
+        if (player_coins.length > 0) {
+          const newCoin = player_coins.pop();
+          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = `${
+            displayCoinList(coinList)
+          }`;
+          coinList.push(newCoin as coin);
+          playerCoins.innerHTML = `Player Coins: ${
+            displayCoinList(player_coins)
+          }`;
         }
       });
     return popupDiv;
@@ -151,12 +188,17 @@ function createCache(obj: leaflet.CircleMarker) {
 }
 
 //make caches:
-function placeCache(coords: leaflet.LatLng) {
-  const circ = leaflet.circleMarker(coords, {
-    radius: 15,
-    color: "red",
-    weight: 4,
-  }).addTo(map);
+function placeCache(coords: cell) {
+  const x = coords.i;
+  const y = coords.j;
+  const circ = leaflet.circleMarker(
+    leaflet.latLng(x + centerOnSpawnOffset, y + centerOnSpawnOffset),
+    {
+      radius: 15,
+      color: "red",
+      weight: 4,
+    },
+  ).addTo(map);
   createCache(circ);
   circ.openPopup();
   return circ;
@@ -177,20 +219,27 @@ function updateNeighborhood() {
       j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
       j += TILE_SIZE
     ) {
-      const pnt = leaflet.latLng(i, j);
-      neighborhood.push(pnt);
+      const sqr: cell = {
+        i: i + centerOnSpawnOffset,
+        j: j + centerOnSpawnOffset,
+      };
+      neighborhood.push(sqr);
+      renderCell(sqr);
     }
   }
+  generateCaches();
 }
 
 function generateCaches() {
-  neighborhood.forEach((coords) => {
-    if (luck(coords.toString()) <= CACHE_SPAWN_PROBABILITY) {
+  neighborhood.forEach((coords: cell) => {
+    if (
+      luck(`${coords.i}, ${coords.j} probability`) <= CACHE_SPAWN_PROBABILITY
+    ) {
       const topCorner = coords;
-      const marker: leaflet.LatLng = leaflet.latLng(
-        topCorner.lat,
-        topCorner.lng,
-      );
+      const marker: cell = {
+        i: topCorner.i,
+        j: topCorner.j,
+      };
       placeCache(marker);
     }
   });
