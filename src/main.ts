@@ -24,9 +24,9 @@ app.append(mainMap);
 const OAKES_CLASSROOM = leaflet.latLng(36.9894, -122.0627);
 const START_ZOOM = 16;
 const MAX_ZOOM = 19;
-const MIN_ZOOM = 16;
+const MIN_ZOOM = 14;
 const TILE_SIZE = 0.001;
-const NEIGHBORHOOD_SIZE = 10;
+const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
 
 interface cell {
@@ -38,6 +38,11 @@ interface coin {
   x: number;
   y: number;
   serial: number;
+}
+
+interface Memento {
+  coins: coin[];
+  coords: { lat: number; lng: number };
 }
 
 const map = leaflet.map("map").setView(OAKES_CLASSROOM, START_ZOOM);
@@ -59,7 +64,9 @@ const player_coins: coin[] = [];
 
 const centerOnSpawnOffset = 0.0005;
 
-let neighborhood: cell[] = [];
+let neighborhood: cell[][] = [];
+
+const mementoCaretaker: Map<string, Memento> = new Map();
 
 function displayCoinList(c: coin[]): string[] {
   const displayList: string[] = [];
@@ -92,14 +99,14 @@ function moveDown() {
   const x = pos.lat;
   const y = pos.lng;
   player.setLatLng([x - TILE_SIZE, y]);
-  updatePlayer();
+  updatePlayer("down");
 }
 function moveUp() {
   const pos = player.getLatLng();
   const x = pos.lat;
   const y = pos.lng;
   player.setLatLng([x + TILE_SIZE, y]);
-  updatePlayer();
+  updatePlayer("up");
 }
 function moveRight() {
   const pos = player.getLatLng();
@@ -113,38 +120,66 @@ function moveLeft() {
   const x = pos.lat;
   const y = pos.lng;
   player.setLatLng([x, y - TILE_SIZE]);
-  updatePlayer();
+  updatePlayer("left");
 }
 
-function updatePlayer() {
-  updateNeighborhood();
+function updatePlayer(direction?: "left" | "right" | "up" | "down") {
+  if (direction) {
+    updateNeighborhood(direction);
+  } else {
+    updateNeighborhood();
+  }
   generateCaches();
   map.setView(player.getLatLng(), START_ZOOM);
 }
 
-function createCache(obj: leaflet.CircleMarker) {
+function createOrRestoreCache(coords: leaflet.LatLng): void {
+  const mementoKey = `${coords.lat},${coords.lng}`;
+  let cacheState: { coins: coin[]; coords: leaflet.LatLng } | undefined =
+    undefined;
+  if (mementoCaretaker.has(mementoKey)) {
+    // Restore from memento
+    cacheState = restoreState(mementoCaretaker.get(mementoKey) as Memento);
+  } else {
+    // Create a new cache state
+    cacheState = {
+      coins: generateCoins(coords), // Assuming a function that generates coins
+      coords: coords,
+    };
+    mementoCaretaker.set(mementoKey, saveState(cacheState.coins, coords));
+  }
+  const newCacheWindow = newCacheMarker(coords);
+  createCache(newCacheWindow, cacheState); // Attach the state to the cache popup
+}
+
+function generateCoins(coords: leaflet.LatLng): coin[] {
+  const coinList: coin[] = [];
+  const numCoins = Math.floor(
+    luck([coords, "initialValue"].toString()) * 10,
+  );
+  for (
+    let i = 0;
+    i < numCoins;
+    i++
+  ) {
+    const x = coords.lat;
+    const y = coords.lng;
+    const newCoin: coin = {
+      x: x,
+      y: y,
+      serial: i,
+    };
+    coinList.push(newCoin);
+  }
+  return coinList;
+}
+
+function createCache(obj: leaflet.CircleMarker, sqr: Memento) {
   //CITATION - much of this code is taken from the example file
+
   obj.bindPopup(() => {
     // Each cache has a random point value, mutable by the player
-    const coinList: coin[] = [];
-    const numCoins = Math.floor(
-      luck([obj.getLatLng(), "initialValue"].toString()) * 10,
-    );
-    for (
-      let i = 0;
-      i < numCoins;
-      i++
-    ) {
-      const coords = obj.getLatLng();
-      const x = coords.lat;
-      const y = coords.lng;
-      const newCoin: coin = {
-        x: x,
-        y: y,
-        serial: i,
-      };
-      coinList.push(newCoin);
-    }
+    const coinList: coin[] = sqr.coins;
 
     // The popup offers a description and button
     const popupDiv = document.createElement("div");
@@ -169,6 +204,10 @@ function createCache(obj: leaflet.CircleMarker) {
             displayCoinList(player_coins)
           }`;
         }
+        mementoCaretaker.set(
+          `${sqr.coords.lat},${sqr.coords.lng}`,
+          saveState(coinList, leaflet.latLng(sqr.coords)),
+        );
       });
     popupDiv.querySelector<HTMLButtonElement>("#deposit")!
       .addEventListener("click", () => {
@@ -182,66 +221,157 @@ function createCache(obj: leaflet.CircleMarker) {
             displayCoinList(player_coins)
           }`;
         }
+        mementoCaretaker.set(
+          `${sqr.coords.lat},${sqr.coords.lng}`,
+          saveState(coinList, leaflet.latLng(sqr.coords)),
+        );
       });
     return popupDiv;
   });
 }
 
-//make caches:
-function placeCache(coords: cell) {
-  const x = coords.i;
-  const y = coords.j;
+function saveState(coinList: coin[], coords: leaflet.LatLng): Memento {
+  return {
+    coins: [...coinList], // Clone the array for immutability
+    coords: { lat: coords.lat, lng: coords.lng },
+  };
+}
+
+function restoreState(
+  memento: Memento,
+): { coins: coin[]; coords: leaflet.LatLng } {
+  const state = memento;
+  return {
+    coins: [...state.coins], // Create a copy to maintain the separation
+    coords: leaflet.latLng(state.coords.lat, state.coords.lng),
+  };
+}
+
+function newCacheMarker(coords: leaflet.LatLng): leaflet.CircleMarker {
   const circ = leaflet.circleMarker(
-    leaflet.latLng(x + centerOnSpawnOffset, y + centerOnSpawnOffset),
+    leaflet.latLng(
+      coords.lat + centerOnSpawnOffset,
+      coords.lng + centerOnSpawnOffset,
+    ),
     {
       radius: 15,
       color: "red",
       weight: 4,
     },
   ).addTo(map);
-  createCache(circ);
-  circ.openPopup();
   return circ;
 }
 
-function updateNeighborhood() {
-  neighborhood = [];
+//make caches:
+function placeCache(coords: cell) {
+  const x = coords.i;
+  const y = coords.j;
+  createOrRestoreCache(leaflet.latLng(x, y));
+}
+
+function updateNeighborhood(direction?: "left" | "right" | "up" | "down") {
   const current_square = player.getLatLng();
   const current_x = current_square.lat;
   const current_y = current_square.lng;
-  for (
-    let i = current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE);
-    i < current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE);
-    i += TILE_SIZE
-  ) {
-    for (
-      let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
-      j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
-      j += TILE_SIZE
-    ) {
-      const sqr: cell = {
-        i: i + centerOnSpawnOffset,
-        j: j + centerOnSpawnOffset,
-      };
-      neighborhood.push(sqr);
-      renderCell(sqr);
+  if (direction) {
+    if (direction == "right") {
+      neighborhood.forEach((row) => {
+        const i = row[0].i;
+        const j = current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE) + TILE_SIZE;
+        const cell: cell = {
+          i: i + centerOnSpawnOffset,
+          j: j + centerOnSpawnOffset,
+        };
+        row.push(cell);
+        row.shift();
+        renderCell(cell);
+      });
+    } else if (direction == "left") {
+      neighborhood.forEach((row) => {
+        const i = row[0].i;
+        const j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE) +
+          centerOnSpawnOffset;
+        const cell: cell = {
+          i: i,
+          j: j,
+        };
+        row.pop();
+        row.unshift(cell);
+        renderCell(cell);
+      });
+    } else if (direction == "up") {
+      neighborhood.shift();
+      const newRow: cell[] = [];
+      for (
+        let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+        j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+        j += TILE_SIZE
+      ) {
+        const newCell: cell = {
+          i: current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE) + centerOnSpawnOffset,
+          j: j + centerOnSpawnOffset,
+        };
+        newRow.push(newCell);
+        renderCell(newCell);
+      }
+      neighborhood.push(newRow);
+    } else {
+      neighborhood.pop();
+      const newRow: cell[] = [];
+      for (
+        let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+        j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+        j += TILE_SIZE
+      ) {
+        const newCell: cell = {
+          i: current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE) + centerOnSpawnOffset,
+          j: j + centerOnSpawnOffset,
+        };
+        newRow.push(newCell);
+        renderCell(newCell);
+      }
+      neighborhood.unshift(newRow);
     }
+  } else {
+    neighborhood = [];
+    for (
+      let i = current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      i < current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      i += TILE_SIZE
+    ) {
+      const row: cell[] = [];
+      for (
+        let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+        j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+        j += TILE_SIZE
+      ) {
+        const sqr: cell = {
+          i: i + centerOnSpawnOffset,
+          j: j + centerOnSpawnOffset,
+        };
+        row.push(sqr);
+        renderCell(sqr);
+      }
+      neighborhood.push(row);
+    }
+    generateCaches();
   }
-  generateCaches();
 }
 
 function generateCaches() {
-  neighborhood.forEach((coords: cell) => {
-    if (
-      luck(`${coords.i}, ${coords.j} probability`) <= CACHE_SPAWN_PROBABILITY
-    ) {
-      const topCorner = coords;
-      const marker: cell = {
-        i: topCorner.i,
-        j: topCorner.j,
-      };
-      placeCache(marker);
-    }
+  neighborhood.forEach((coords: cell[]) => {
+    coords.forEach((square: cell) => {
+      if (
+        luck(`${square.i}, ${square.j} probability`) <= CACHE_SPAWN_PROBABILITY
+      ) {
+        const topCorner = square;
+        const marker: cell = {
+          i: topCorner.i,
+          j: topCorner.j,
+        };
+        placeCache(marker);
+      }
+    });
   });
 }
 
