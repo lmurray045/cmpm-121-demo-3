@@ -1,5 +1,5 @@
 // @deno-types="npm:@types/leaflet@^1.9.14"
-import leaflet from "leaflet";
+import leaflet, { TileLayer } from "leaflet";
 
 // Style sheets
 import "leaflet/dist/leaflet.css";
@@ -24,7 +24,7 @@ app.append(mainMap);
 const OAKES_CLASSROOM = leaflet.latLng(36.9894, -122.0627);
 const START_ZOOM = 16;
 const MAX_ZOOM = 19;
-const MIN_ZOOM = 14;
+const MIN_ZOOM = 16;
 const TILE_SIZE = 0.001;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
@@ -54,19 +54,67 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
 
-const player = leaflet.marker([36.9894, -122.0627]).addTo(
+const player = leaflet.marker(
+  normalizeCoords(leaflet.latLng(36.9894, -122.0627)),
+).addTo(
   map,
 );
 player.bindPopup("This is you!");
 player.openPopup();
-//player coin counter
-const player_coins: coin[] = [];
 
 const centerOnSpawnOffset = 0.0005;
 
 let neighborhood: cell[][] = [];
 
-const mementoCaretaker: Map<string, Memento> = new Map();
+let gpsFlag = false;
+
+const localCoins = localStorage.getItem("coins");
+const player_coins: coin[] = [];
+if (localCoins) {
+  // Parse the string back into an array
+  const storedCoins: coin[] = JSON.parse(localCoins);
+  console.log(storedCoins);
+  if (storedCoins.length > 0) {
+    // Reconstruct the Map from the array of entries
+    storedCoins.forEach((obj) => {
+      const newCoin: coin = {
+        x: obj.x,
+        y: obj.y,
+        serial: obj.serial,
+      };
+      console.log(newCoin);
+      player_coins.push(newCoin);
+    });
+  }
+}
+
+const localPlayerCoords = localStorage.getItem("player");
+
+if (localPlayerCoords) {
+  player.setLatLng(JSON.parse(localPlayerCoords));
+}
+
+let path: leaflet.LatLng[] = [];
+path.push(player.getLatLng());
+
+const localPath = localStorage.getItem("path");
+if (localPath) {
+  path = JSON.parse(localPath);
+  drawPoly();
+}
+
+const localCaretaker = localStorage.getItem("map");
+let mementoCaretaker: Map<string, Memento> = new Map();
+
+if (localCaretaker) {
+  // Parse the string back into an array
+  const mapEntries: [string, Memento][] = JSON.parse(localCaretaker);
+  console.log(mapEntries);
+  if (mapEntries.length > 0) {
+    // Reconstruct the Map from the array of entries
+    mementoCaretaker = new Map<string, Memento>(mapEntries);
+  }
+}
 
 function displayCoinList(c: coin[]): string[] {
   const displayList: string[] = [];
@@ -94,6 +142,12 @@ function renderCell(square: cell): void {
   );
 }
 
+function drawPoly() {
+  leaflet.polyline(path, { color: "green", weight: 4, opacity: 0.8 }).addTo(
+    map,
+  );
+}
+
 function moveDown() {
   const pos = player.getLatLng();
   const x = pos.lat;
@@ -113,7 +167,7 @@ function moveRight() {
   const x = pos.lat;
   const y = pos.lng;
   player.setLatLng([x, y + TILE_SIZE]);
-  updatePlayer();
+  updatePlayer("right");
 }
 function moveLeft() {
   const pos = player.getLatLng();
@@ -121,6 +175,20 @@ function moveLeft() {
   const y = pos.lng;
   player.setLatLng([x, y - TILE_SIZE]);
   updatePlayer("left");
+}
+function startGPS() {
+  if (gpsFlag == false) {
+    // Start the loop
+    requestAnimationFrame(update);
+    gpsFlag = true;
+  } else {
+    gpsFlag = false;
+  }
+}
+
+function clearData() {
+  localStorage.clear();
+  location.reload();
 }
 
 function updatePlayer(direction?: "left" | "right" | "up" | "down") {
@@ -130,6 +198,10 @@ function updatePlayer(direction?: "left" | "right" | "up" | "down") {
     updateNeighborhood();
   }
   generateCaches();
+  path.push(player.getLatLng());
+  localStorage.setItem("player", JSON.stringify(player.getLatLng()));
+  localStorage.setItem("path", JSON.stringify(path));
+  drawPoly();
   map.setView(player.getLatLng(), START_ZOOM);
 }
 
@@ -150,6 +222,10 @@ function createOrRestoreCache(coords: leaflet.LatLng): void {
   }
   const newCacheWindow = newCacheMarker(coords);
   createCache(newCacheWindow, cacheState); // Attach the state to the cache popup
+  localStorage.setItem(
+    "map",
+    JSON.stringify(Array.from(mementoCaretaker.entries())),
+  );
 }
 
 function generateCoins(coords: leaflet.LatLng): coin[] {
@@ -208,15 +284,23 @@ function createCache(obj: leaflet.CircleMarker, sqr: Memento) {
           `${sqr.coords.lat},${sqr.coords.lng}`,
           saveState(coinList, leaflet.latLng(sqr.coords)),
         );
+        localStorage.setItem(
+          "map",
+          JSON.stringify(Array.from(mementoCaretaker.entries())),
+        );
+        localStorage.setItem(
+          "coins",
+          JSON.stringify(Array.from(player_coins)),
+        );
       });
     popupDiv.querySelector<HTMLButtonElement>("#deposit")!
       .addEventListener("click", () => {
         if (player_coins.length > 0) {
           const newCoin = player_coins.pop();
+          coinList.push(newCoin as coin);
           popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = `${
             displayCoinList(coinList)
           }`;
-          coinList.push(newCoin as coin);
           playerCoins.innerHTML = `Player Coins: ${
             displayCoinList(player_coins)
           }`;
@@ -224,6 +308,14 @@ function createCache(obj: leaflet.CircleMarker, sqr: Memento) {
         mementoCaretaker.set(
           `${sqr.coords.lat},${sqr.coords.lng}`,
           saveState(coinList, leaflet.latLng(sqr.coords)),
+        );
+        localStorage.setItem(
+          "map",
+          JSON.stringify(Array.from(mementoCaretaker.entries())),
+        );
+        localStorage.setItem(
+          "coins",
+          JSON.stringify(Array.from(player_coins)),
         );
       });
     return popupDiv;
@@ -257,6 +349,9 @@ function newCacheMarker(coords: leaflet.LatLng): leaflet.CircleMarker {
       radius: 15,
       color: "red",
       weight: 4,
+      fill: true,
+      fillColor: "white",
+      fillOpacity: 1,
     },
   ).addTo(map);
   return circ;
@@ -270,16 +365,16 @@ function placeCache(coords: cell) {
 }
 
 function updateNeighborhood(direction?: "left" | "right" | "up" | "down") {
-  const current_square = player.getLatLng();
+  const current_square = normalizeCoords(player.getLatLng());
   const current_x = current_square.lat;
   const current_y = current_square.lng;
   if (direction) {
     if (direction == "right") {
       neighborhood.forEach((row) => {
         const i = row[0].i;
-        const j = current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE) + TILE_SIZE;
+        const j = current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE) - TILE_SIZE;
         const cell: cell = {
-          i: i + centerOnSpawnOffset,
+          i: i,
           j: j + centerOnSpawnOffset,
         };
         row.push(cell);
@@ -295,8 +390,8 @@ function updateNeighborhood(direction?: "left" | "right" | "up" | "down") {
           i: i,
           j: j,
         };
-        row.pop();
         row.unshift(cell);
+        row.pop();
         renderCell(cell);
       });
     } else if (direction == "up") {
@@ -375,9 +470,54 @@ function generateCaches() {
   });
 }
 
+function normalizeCoords(coords: leaflet.LatLng): leaflet.LatLng {
+  const newX: number = Number(coords.lat.toFixed(3));
+  const newY: number = Number(coords.lng.toFixed(3));
+  return leaflet.latLng(newX, newY);
+}
+
+let irl_latitude;
+let irl_longitude;
+
+//CITATION- this code was assisted by Brace
+function getPlayerLocation(): void {
+  if ("geolocation" in navigator) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        irl_latitude = position.coords.latitude;
+        irl_longitude = position.coords.longitude;
+        console.log(`Latitude: ${irl_latitude}, Longitude: ${irl_longitude}`);
+        player.setLatLng(leaflet.latLng(irl_latitude, irl_longitude));
+        updatePlayer();
+        // You can now use these coordinates to update the player's location on a map
+      },
+      (error) => {
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            console.error("User denied the request for Geolocation.");
+            break;
+          case error.POSITION_UNAVAILABLE:
+            console.error("Location information is unavailable.");
+            break;
+          case error.TIMEOUT:
+            console.error("The request to get user location timed out.");
+            break;
+          default:
+            console.error("An unknown error occurred.");
+            break;
+        }
+      },
+    );
+  } else {
+    console.error("Geolocation is not supported by this browser.");
+  }
+}
+
+//getPlayerLocation();
+
 updateNeighborhood();
 
-generateCaches();
+//generateCaches();
 
 map.setView(player.getLatLng(), START_ZOOM);
 player.openPopup();
@@ -399,8 +539,16 @@ const downButton = document.createElement("button");
 downButton.innerHTML = "Down";
 app.append(downButton);
 
+const gpsButton = document.createElement("button");
+gpsButton.innerHTML = "🌐";
+app.append(gpsButton);
+
+const trashButton = document.createElement("button");
+trashButton.innerHTML = "🚮";
+app.append(trashButton);
+
 const playerCoins = document.createElement("div");
-playerCoins.innerHTML = `Player Coins: ${player_coins}`;
+playerCoins.innerHTML = `Player Coins: ${displayCoinList(player_coins)}`;
 app.append(playerCoins);
 
 //alert button added
@@ -419,3 +567,30 @@ upButton.addEventListener("click", () => {
 downButton.addEventListener("click", () => {
   moveDown();
 });
+
+gpsButton.addEventListener("click", () => {
+  startGPS();
+});
+
+trashButton.addEventListener("click", () => {
+  const isConfirmed = confirm("Are you sure you want to clear all data?");
+  if (isConfirmed) {
+    clearData();
+  }
+});
+
+//frame counter
+let counter = 0;
+
+//update loop
+function update() {
+  //every second
+  if (counter == 60) {
+    getPlayerLocation();
+    counter = 0;
+  }
+  counter += 1;
+  if (gpsFlag) {
+    requestAnimationFrame(update);
+  }
+}
