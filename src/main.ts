@@ -45,6 +45,34 @@ interface Memento {
   coords: { lat: number; lng: number };
 }
 
+class MovementManager {
+  constructor(private player: leaflet.Marker) {}
+
+  movePlayer(direction: "up" | "down" | "left" | "right") {
+      const pos = this.player.getLatLng();
+      const TILE_SIZE = 0.001;
+      let newPos;
+
+      switch (direction) {
+          case "up":
+              newPos = leaflet.latLng(pos.lat + TILE_SIZE, pos.lng);
+              break;
+          case "down":
+              newPos = leaflet.latLng(pos.lat - TILE_SIZE, pos.lng);
+              break;
+          case "left":
+              newPos = leaflet.latLng(pos.lat, pos.lng - TILE_SIZE);
+              break;
+          case "right":
+              newPos = leaflet.latLng(pos.lat, pos.lng + TILE_SIZE);
+              break;
+      }
+
+      this.player.setLatLng(newPos);
+      updatePlayer(direction); // Calls the single master updater.
+  }
+}
+
 const map = leaflet.map("map").setView(OAKES_CLASSROOM, START_ZOOM);
 
 leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -65,6 +93,8 @@ player.openPopup();
 const centerOnSpawnOffset = 0.0005;
 
 let neighborhood: cell[][] = [];
+
+const movementManager: MovementManager = new MovementManager(player);
 
 let gpsFlag = false;
 
@@ -149,33 +179,18 @@ function drawPoly() {
 }
 
 function moveDown() {
-  const pos = player.getLatLng();
-  const x = pos.lat;
-  const y = pos.lng;
-  player.setLatLng([x - TILE_SIZE, y]);
-  updatePlayer("down");
+  movementManager.movePlayer("down");
 }
 function moveUp() {
-  const pos = player.getLatLng();
-  const x = pos.lat;
-  const y = pos.lng;
-  player.setLatLng([x + TILE_SIZE, y]);
-  updatePlayer("up");
+  movementManager.movePlayer("up");
 }
 function moveRight() {
-  const pos = player.getLatLng();
-  const x = pos.lat;
-  const y = pos.lng;
-  player.setLatLng([x, y + TILE_SIZE]);
-  updatePlayer("right");
+  movementManager.movePlayer("right");
 }
 function moveLeft() {
-  const pos = player.getLatLng();
-  const x = pos.lat;
-  const y = pos.lng;
-  player.setLatLng([x, y - TILE_SIZE]);
-  updatePlayer("left");
+  movementManager.movePlayer("left");
 }
+
 function startGPS() {
   if (gpsFlag == false) {
     // Start the loop
@@ -191,6 +206,16 @@ function clearData() {
   location.reload();
 }
 
+function updatePath(playerLatLng: leaflet.LatLng): void {
+  path.push(playerLatLng);
+  drawPoly();
+}
+
+function storeState(): void {
+  localStorage.setItem("player", JSON.stringify(player.getLatLng()));
+  localStorage.setItem("path", JSON.stringify(path));
+}
+
 function updatePlayer(direction?: "left" | "right" | "up" | "down") {
   if (direction) {
     updateNeighborhood(direction);
@@ -198,10 +223,8 @@ function updatePlayer(direction?: "left" | "right" | "up" | "down") {
     updateNeighborhood();
   }
   generateCaches();
-  path.push(player.getLatLng());
-  localStorage.setItem("player", JSON.stringify(player.getLatLng()));
-  localStorage.setItem("path", JSON.stringify(path));
-  drawPoly();
+  updatePath(player.getLatLng());
+  storeState();
   map.setView(player.getLatLng(), START_ZOOM);
 }
 
@@ -364,12 +387,8 @@ function placeCache(coords: cell) {
   createOrRestoreCache(leaflet.latLng(x, y));
 }
 
-function updateNeighborhood(direction?: "left" | "right" | "up" | "down") {
-  const current_square = normalizeCoords(player.getLatLng());
-  const current_x = current_square.lat;
-  const current_y = current_square.lng;
-  if (direction) {
-    if (direction == "right") {
+function directionalGridUpdate(direction: "left" | "right" | "up" | "down", current_x: number, current_y: number) {
+  if (direction == "right") {
       neighborhood.forEach((row) => {
         const i = row[0].i;
         const j = current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE) - TILE_SIZE;
@@ -427,29 +446,41 @@ function updateNeighborhood(direction?: "left" | "right" | "up" | "down") {
       }
       neighborhood.unshift(newRow);
     }
-  } else {
-    neighborhood = [];
+}
+
+function generateGrid(current_x: number, current_y: number) {
+  neighborhood = [];
+  for (
+    let i = current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+    i < current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+    i += TILE_SIZE
+  ) {
+    const row: cell[] = [];
     for (
-      let i = current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE);
-      i < current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE);
-      i += TILE_SIZE
+      let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      j += TILE_SIZE
     ) {
-      const row: cell[] = [];
-      for (
-        let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
-        j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
-        j += TILE_SIZE
-      ) {
-        const sqr: cell = {
-          i: i + centerOnSpawnOffset,
-          j: j + centerOnSpawnOffset,
-        };
-        row.push(sqr);
-        renderCell(sqr);
-      }
-      neighborhood.push(row);
+      const sqr: cell = {
+        i: i + centerOnSpawnOffset,
+        j: j + centerOnSpawnOffset,
+      };
+      row.push(sqr);
+      renderCell(sqr);
     }
-    generateCaches();
+    neighborhood.push(row);
+  }
+  generateCaches();
+}
+
+function updateNeighborhood(direction?: "left" | "right" | "up" | "down") {
+  const current_square = normalizeCoords(player.getLatLng());
+  const current_x = current_square.lat;
+  const current_y = current_square.lng;
+  if (direction) {
+    directionalGridUpdate(direction, current_x, current_y);
+  } else {
+    generateGrid(current_x, current_y);
   }
 }
 
