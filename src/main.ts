@@ -49,27 +49,26 @@ class MovementManager {
   constructor(private player: leaflet.Marker) {}
 
   movePlayer(direction: "up" | "down" | "left" | "right") {
-      const pos = this.player.getLatLng();
-      const TILE_SIZE = 0.001;
-      let newPos;
+    const pos = this.player.getLatLng();
+    const TILE_SIZE = 0.001;
+    let newPos;
 
-      switch (direction) {
-          case "up":
-              newPos = leaflet.latLng(pos.lat + TILE_SIZE, pos.lng);
-              break;
-          case "down":
-              newPos = leaflet.latLng(pos.lat - TILE_SIZE, pos.lng);
-              break;
-          case "left":
-              newPos = leaflet.latLng(pos.lat, pos.lng - TILE_SIZE);
-              break;
-          case "right":
-              newPos = leaflet.latLng(pos.lat, pos.lng + TILE_SIZE);
-              break;
-      }
-
-      this.player.setLatLng(newPos);
-      updatePlayer(direction); // Calls the single master updater.
+    switch (direction) {
+      case "up":
+        newPos = leaflet.latLng(pos.lat + TILE_SIZE, pos.lng);
+        break;
+      case "down":
+        newPos = leaflet.latLng(pos.lat - TILE_SIZE, pos.lng);
+        break;
+      case "left":
+        newPos = leaflet.latLng(pos.lat, pos.lng - TILE_SIZE);
+        break;
+      case "right":
+        newPos = leaflet.latLng(pos.lat, pos.lng + TILE_SIZE);
+        break;
+    }
+    this.player.setLatLng(newPos);
+    updatePlayer(direction); // Calls the single master updater.
   }
 }
 
@@ -387,65 +386,69 @@ function placeCache(coords: cell) {
   createOrRestoreCache(leaflet.latLng(x, y));
 }
 
-function directionalGridUpdate(direction: "left" | "right" | "up" | "down", current_x: number, current_y: number) {
+function directionalGridUpdate(
+  direction: "left" | "right" | "up" | "down",
+  current_x: number,
+  current_y: number,
+) {
   if (direction == "right") {
-      neighborhood.forEach((row) => {
-        const i = row[0].i;
-        const j = current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE) - TILE_SIZE;
-        const cell: cell = {
-          i: i,
-          j: j + centerOnSpawnOffset,
-        };
-        row.push(cell);
-        row.shift();
-        renderCell(cell);
-      });
-    } else if (direction == "left") {
-      neighborhood.forEach((row) => {
-        const i = row[0].i;
-        const j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE) +
-          centerOnSpawnOffset;
-        const cell: cell = {
-          i: i,
-          j: j,
-        };
-        row.unshift(cell);
-        row.pop();
-        renderCell(cell);
-      });
-    } else if (direction == "up") {
-      neighborhood.shift();
-      const newRow: cell[] = [];
-      for (
-        let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
-        j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
-        j += TILE_SIZE
-      ) {
-        const newCell: cell = {
-          i: current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE) + centerOnSpawnOffset,
-          j: j + centerOnSpawnOffset,
-        };
-        newRow.push(newCell);
-        renderCell(newCell);
-      }
-      neighborhood.push(newRow);
-    } else {
-      neighborhood.pop();
-      const newRow: cell[] = [];
-      for (
-        let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
-        j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
-        j += TILE_SIZE
-      ) {
-        const newCell: cell = {
-          i: current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE) + centerOnSpawnOffset,
-          j: j + centerOnSpawnOffset,
-        };
-        newRow.push(newCell);
-        renderCell(newCell);
-      }
-      neighborhood.unshift(newRow);
+    neighborhood.forEach((row) => {
+      const i = row[0].i;
+      const j = current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE) - TILE_SIZE;
+      const cell: cell = {
+        i: i,
+        j: j + centerOnSpawnOffset,
+      };
+      row.push(cell);
+      row.shift();
+      renderCell(cell);
+    });
+  } else if (direction == "left") {
+    neighborhood.forEach((row) => {
+      const i = row[0].i;
+      const j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE) +
+        centerOnSpawnOffset;
+      const cell: cell = {
+        i: i,
+        j: j,
+      };
+      row.unshift(cell);
+      row.pop();
+      renderCell(cell);
+    });
+  } else if (direction == "up") {
+    neighborhood.shift();
+    const newRow: cell[] = [];
+    for (
+      let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      j += TILE_SIZE
+    ) {
+      const newCell: cell = {
+        i: current_x + (NEIGHBORHOOD_SIZE * TILE_SIZE) + centerOnSpawnOffset,
+        j: j + centerOnSpawnOffset,
+      };
+      newRow.push(newCell);
+      renderCell(newCell);
     }
+    neighborhood.push(newRow);
+  } else {
+    neighborhood.pop();
+    const newRow: cell[] = [];
+    for (
+      let j = current_y - (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      j < current_y + (NEIGHBORHOOD_SIZE * TILE_SIZE);
+      j += TILE_SIZE
+    ) {
+      const newCell: cell = {
+        i: current_x - (NEIGHBORHOOD_SIZE * TILE_SIZE) + centerOnSpawnOffset,
+        j: j + centerOnSpawnOffset,
+      };
+      newRow.push(newCell);
+      renderCell(newCell);
+    }
+    neighborhood.unshift(newRow);
+  }
 }
 
 function generateGrid(current_x: number, current_y: number) {
